@@ -54,6 +54,10 @@ func main() {
         if huggingFaceAPIKey == "" {
                 log.Fatal("HUGGINGFACE_API_KEY environment variable is required. Please set it in Replit Secrets.")
         }
+        
+        // Log API key status (safely)
+        log.Printf("GEMINI_API_KEY loaded: %t (length: %d)", geminiAPIKey != "", len(geminiAPIKey))
+        log.Printf("HUGGINGFACE_API_KEY loaded: %t (length: %d)", huggingFaceAPIKey != "", len(huggingFaceAPIKey))
 
         // Serve static files from public directory
         fs := http.FileServer(http.Dir("./public/"))
