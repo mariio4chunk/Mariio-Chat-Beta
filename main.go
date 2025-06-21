@@ -337,69 +337,99 @@ func detectImageGenerationRequest(prompt string, messages []Message) bool {
 
 // generateImage generates an image using Hugging Face Stable Diffusion API
 func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
-        // Hugging Face Stable Diffusion API endpoint - using runwayml/stable-diffusion-v1-5
-        url := "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
-        
-        // Prepare request payload
-        payload := map[string]interface{}{
-                "inputs": prompt,
-                "parameters": map[string]interface{}{
-                        "num_inference_steps": 50,
-                        "guidance_scale":      7.5,
-                        "width":              512,
-                        "height":             512,
-                },
+        // Try multiple models in order of preference
+        models := []string{
+                "stabilityai/stable-diffusion-2-1",
+                "CompVis/stable-diffusion-v1-4",
+                "runwayml/stable-diffusion-v1-5",
         }
         
-        jsonPayload, err := json.Marshal(payload)
-        if err != nil {
-                return "", fmt.Errorf("failed to marshal payload: %v", err)
-        }
+        var lastError error
         
-        // Create HTTP request
-        req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonPayload))
-        if err != nil {
-                return "", fmt.Errorf("failed to create request: %v", err)
-        }
-        
-        req.Header.Set("Authorization", "Bearer "+apiKey)
-        req.Header.Set("Content-Type", "application/json")
-        
-        // Send request with timeout
-        client := &http.Client{
-                Timeout: 60 * time.Second, // Increase timeout for image generation
-        }
-        resp, err := client.Do(req)
-        if err != nil {
-                return "", fmt.Errorf("failed to send request: %v", err)
-        }
-        defer resp.Body.Close()
-        
-        if resp.StatusCode == 503 {
-                // Model is loading, wait and retry
-                time.Sleep(10 * time.Second)
-                resp2, err2 := client.Do(req)
-                if err2 != nil {
-                        return "", fmt.Errorf("failed to retry request: %v", err2)
+        for _, model := range models {
+                log.Printf("Trying model: %s", model)
+                url := fmt.Sprintf("https://api-inference.huggingface.co/models/%s", model)
+                
+                // Prepare request payload
+                payload := map[string]interface{}{
+                        "inputs": prompt,
+                        "parameters": map[string]interface{}{
+                                "num_inference_steps": 20, // Reduced for faster generation
+                                "guidance_scale":      7.5,
+                        },
                 }
-                defer resp2.Body.Close()
-                resp = resp2
+                
+                jsonPayload, err := json.Marshal(payload)
+                if err != nil {
+                        lastError = fmt.Errorf("failed to marshal payload: %v", err)
+                        continue
+                }
+                
+                // Create HTTP request
+                req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonPayload))
+                if err != nil {
+                        lastError = fmt.Errorf("failed to create request: %v", err)
+                        continue
+                }
+                
+                req.Header.Set("Authorization", "Bearer "+apiKey)
+                req.Header.Set("Content-Type", "application/json")
+                
+                // Send request with timeout
+                client := &http.Client{
+                        Timeout: 30 * time.Second,
+                }
+                resp, err := client.Do(req)
+                if err != nil {
+                        lastError = fmt.Errorf("failed to send request: %v", err)
+                        continue
+                }
+                defer resp.Body.Close()
+                
+                // Read response body for error checking
+                body, err := io.ReadAll(resp.Body)
+                if err != nil {
+                        lastError = fmt.Errorf("failed to read response body: %v", err)
+                        continue
+                }
+                
+                log.Printf("Response status: %d, body length: %d", resp.StatusCode, len(body))
+                
+                if resp.StatusCode == 503 {
+                        // Model is loading, try next model
+                        log.Printf("Model %s is loading (503), trying next model", model)
+                        lastError = fmt.Errorf("model %s is loading", model)
+                        continue
+                } else if resp.StatusCode == 404 {
+                        // Model not found, try next model
+                        log.Printf("Model %s not found (404), trying next model", model)
+                        lastError = fmt.Errorf("model %s not found", model)
+                        continue
+                } else if resp.StatusCode != http.StatusOK {
+                        // Other error, try next model
+                        log.Printf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
+                        lastError = fmt.Errorf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
+                        continue
+                }
+                
+                // Check if response is JSON error
+                var errorResp map[string]interface{}
+                if json.Unmarshal(body, &errorResp) == nil {
+                        if errorMsg, exists := errorResp["error"]; exists {
+                                log.Printf("Model %s returned error: %v", model, errorMsg)
+                                lastError = fmt.Errorf("model %s returned error: %v", model, errorMsg)
+                                continue
+                        }
+                }
+                
+                // Success! Convert to base64
+                imageBase64 := base64.StdEncoding.EncodeToString(body)
+                log.Printf("Successfully generated image using model: %s", model)
+                return imageBase64, nil
         }
         
-        if resp.StatusCode != http.StatusOK {
-                body, _ := io.ReadAll(resp.Body)
-                return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-        }
-        
-        // Read image data
-        imageData, err := io.ReadAll(resp.Body)
-        if err != nil {
-                return "", fmt.Errorf("failed to read image data: %v", err)
-        }
-        
-        // Convert to base64
-        imageBase64 := base64.StdEncoding.EncodeToString(imageData)
-        return imageBase64, nil
+        // All models failed
+        return "", fmt.Errorf("all image generation models failed, last error: %v", lastError)
 }
 
 func sendErrorResponse(w http.ResponseWriter, errorMsg string, statusCode int) {
