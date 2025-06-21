@@ -18,6 +18,14 @@ import (
         "google.golang.org/api/option"
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+        if a < b {
+                return a
+        }
+        return b
+}
+
 // MessagePart represents a part of a message (text or image data)
 type MessagePart struct {
         Text     string `json:"text,omitempty"`
@@ -439,96 +447,143 @@ func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
                 
                 // Send request with longer timeout for image generation
                 client := &http.Client{
-                        Timeout: 60 * time.Second,
+                        Timeout: 120 * time.Second, // Increased timeout
                 }
+                
+                log.Printf("Sending request to model %s...", model)
+                startTime := time.Now()
                 
                 resp, err := client.Do(req)
                 if err != nil {
                         lastError = fmt.Errorf("failed to send request: %v", err)
-                        log.Printf("Request failed for model %s: %v", model, err)
+                        log.Printf("Request failed for model %s after %v: %v", model, time.Since(startTime), err)
                         continue
                 }
                 defer resp.Body.Close()
                 
-                // Read response body
-                body, err := io.ReadAll(resp.Body)
-                if err != nil {
-                        lastError = fmt.Errorf("failed to read response body: %v", err)
-                        continue
-                }
+                log.Printf("Received response from model %s after %v, status: %d", model, time.Since(startTime), resp.StatusCode)
                 
-                log.Printf("Model %s response: status=%d, body_length=%d", model, resp.StatusCode, len(body))
+                // Read response body with timeout
+                bodyChannel := make(chan []byte, 1)
+                errorChannel := make(chan error, 1)
                 
-                // Log first 200 characters of response for debugging
-                if len(body) > 0 {
-                        preview := string(body)
-                        if len(preview) > 200 {
-                                preview = preview[:200] + "..."
+                go func() {
+                        body, err := io.ReadAll(resp.Body)
+                        if err != nil {
+                                errorChannel <- err
+                                return
                         }
-                        log.Printf("Response preview: %s", preview)
-                }
+                        bodyChannel <- body
+                }()
+                
+                select {
+                case body := <-bodyChannel:
+                        log.Printf("Model %s response: status=%d, body_length=%d", model, resp.StatusCode, len(body))
+                        
+                        // Log first 200 characters of response for debugging
+                        if len(body) > 0 {
+                                preview := string(body)
+                                if len(preview) > 200 {
+                                        preview = preview[:200] + "..."
+                                }
+                                log.Printf("Response preview: %s", preview)
+                        }
                 
                 if resp.StatusCode == 503 {
-                        log.Printf("Model %s is loading (503), will retry in 20 seconds", model)
-                        time.Sleep(20 * time.Second)
-                        
-                        // Retry once
-                        resp2, err2 := client.Do(req)
-                        if err2 != nil {
-                                lastError = fmt.Errorf("retry failed: %v", err2)
+                                log.Printf("Model %s is loading (503), will retry in 20 seconds", model)
+                                time.Sleep(20 * time.Second)
+                                
+                                // Retry once
+                                retryStartTime := time.Now()
+                                resp2, err2 := client.Do(req)
+                                if err2 != nil {
+                                        lastError = fmt.Errorf("retry failed: %v", err2)
+                                        continue
+                                }
+                                defer resp2.Body.Close()
+                                
+                                body, err = io.ReadAll(resp2.Body)
+                                if err != nil {
+                                        lastError = fmt.Errorf("failed to read retry response: %v", err)
+                                        continue
+                                }
+                                
+                                resp = resp2
+                                log.Printf("Retry for model %s completed after %v: status=%d, body_length=%d", model, time.Since(retryStartTime), resp.StatusCode, len(body))
+                        } else if resp.StatusCode == 404 {
+                                log.Printf("Model %s not found (404), trying next model", model)
+                                lastError = fmt.Errorf("model %s not found", model)
+                                continue
+                        } else if resp.StatusCode == 401 {
+                                log.Printf("Unauthorized (401) - check your Hugging Face API key")
+                                lastError = fmt.Errorf("unauthorized - invalid API key")
+                                continue
+                        } else if resp.StatusCode == 429 {
+                                log.Printf("Rate limit exceeded (429), waiting and trying next model")
+                                lastError = fmt.Errorf("rate limit exceeded")
                                 continue
                         }
-                        defer resp2.Body.Close()
                         
-                        body, err = io.ReadAll(resp2.Body)
-                        if err != nil {
-                                lastError = fmt.Errorf("failed to read retry response: %v", err)
+                        if resp.StatusCode != http.StatusOK {
+                                log.Printf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
+                                lastError = fmt.Errorf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
                                 continue
                         }
                         
-                        resp = resp2
-                        log.Printf("Retry for model %s: status=%d, body_length=%d", model, resp.StatusCode, len(body))
-                } else if resp.StatusCode == 404 {
-                        log.Printf("Model %s not found (404), trying next model", model)
-                        lastError = fmt.Errorf("model %s not found", model)
-                        continue
-                } else if resp.StatusCode == 401 {
-                        log.Printf("Unauthorized (401) - check your Hugging Face API key")
-                        lastError = fmt.Errorf("unauthorized - invalid API key")
-                        continue
-                } else if resp.StatusCode == 429 {
-                        log.Printf("Rate limit exceeded (429), waiting and trying next model")
-                        lastError = fmt.Errorf("rate limit exceeded")
-                        continue
-                }
-                
-                if resp.StatusCode != http.StatusOK {
-                        log.Printf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
-                        lastError = fmt.Errorf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
-                        continue
-                }
-                
-                // Check if response is JSON error
-                var errorResp map[string]interface{}
-                if json.Unmarshal(body, &errorResp) == nil {
-                        if errorMsg, exists := errorResp["error"]; exists {
-                                log.Printf("Model %s returned error: %v", model, errorMsg)
-                                lastError = fmt.Errorf("model %s returned error: %v", model, errorMsg)
+                        // Check if response is JSON error
+                        var errorResp map[string]interface{}
+                        if json.Unmarshal(body, &errorResp) == nil {
+                                if errorMsg, exists := errorResp["error"]; exists {
+                                        log.Printf("Model %s returned error: %v", model, errorMsg)
+                                        lastError = fmt.Errorf("model %s returned error: %v", model, errorMsg)
+                                        continue
+                                }
+                        }
+                        
+                        // Validate response is image data
+                        if len(body) < 100 {
+                                log.Printf("Response too short to be an image: %d bytes", len(body))
+                                lastError = fmt.Errorf("response too short for model %s", model)
                                 continue
                         }
-                }
-                
-                // Check if body is actually image data (binary)
-                if len(body) < 100 {
-                        log.Printf("Response too short to be an image: %d bytes", len(body))
-                        lastError = fmt.Errorf("response too short for model %s", model)
+                        
+                        // Check if it's actually image data by checking magic bytes
+                        if len(body) >= 4 {
+                                // Check for common image file signatures
+                                isImage := false
+                                if body[0] == 0xFF && body[1] == 0xD8 && body[2] == 0xFF { // JPEG
+                                        isImage = true
+                                } else if body[0] == 0x89 && body[1] == 0x50 && body[2] == 0x4E && body[3] == 0x47 { // PNG
+                                        isImage = true
+                                } else if body[0] == 0x47 && body[1] == 0x49 && body[2] == 0x46 { // GIF
+                                        isImage = true
+                                } else if body[0] == 0x52 && body[1] == 0x49 && body[2] == 0x46 && body[3] == 0x46 { // WEBP (starts with RIFF)
+                                        isImage = true
+                                }
+                                
+                                if !isImage {
+                                        log.Printf("Response doesn't appear to be image data for model %s", model)
+                                        log.Printf("First 20 bytes: %v", body[:min(20, len(body))])
+                                        lastError = fmt.Errorf("invalid image data from model %s", model)
+                                        continue
+                                }
+                        }
+                        
+                        // Success! Convert to base64
+                        imageBase64 := base64.StdEncoding.EncodeToString(body)
+                        log.Printf("Successfully generated image using model: %s (image size: %d bytes)", model, len(body))
+                        return imageBase64, nil
+                        
+                case err := <-errorChannel:
+                        lastError = fmt.Errorf("failed to read response body: %v", err)
+                        log.Printf("Error reading response body for model %s: %v", model, err)
+                        continue
+                        
+                case <-time.After(60 * time.Second):
+                        lastError = fmt.Errorf("timeout reading response body for model %s", model)
+                        log.Printf("Timeout reading response body for model %s", model)
                         continue
                 }
-                
-                // Success! Convert to base64
-                imageBase64 := base64.StdEncoding.EncodeToString(body)
-                log.Printf("Successfully generated image using model: %s (image size: %d bytes)", model, len(body))
-                return imageBase64, nil
         }
         
         // All models failed
