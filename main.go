@@ -2,6 +2,7 @@ package main
 
 import (
         "context"
+        "encoding/base64"
         "encoding/json"
         "fmt"
         "io"
@@ -15,15 +16,17 @@ import (
         "google.golang.org/api/option"
 )
 
-// Message represents a chat message in the conversation
-type Message struct {
-        Role  string      `json:"role"`
-        Parts []genai.Part `json:"parts"`
+// MessagePart represents a part of a message (text or image data)
+type MessagePart struct {
+        Text     string `json:"text,omitempty"`
+        MimeType string `json:"mimeType,omitempty"`
+        Data     string `json:"data,omitempty"` // base64-encoded for images
 }
 
-// ChatRequest represents the incoming chat request
-type ChatRequest struct {
-        Messages []Message `json:"messages"`
+// Message represents a chat message in the conversation
+type Message struct {
+        Role  string        `json:"role"`
+        Parts []MessagePart `json:"parts"`
 }
 
 // ChatResponse represents the response sent back to the client
