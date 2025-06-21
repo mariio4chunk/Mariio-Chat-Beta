@@ -12,6 +12,7 @@ import (
         "os"
         "path/filepath"
         "strings"
+        "time"
 
         "github.com/google/generative-ai-go/genai"
         "google.golang.org/api/option"
@@ -332,8 +333,8 @@ func detectImageGenerationRequest(prompt string, messages []Message) bool {
 
 // generateImage generates an image using Hugging Face Stable Diffusion API
 func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
-        // Hugging Face Stable Diffusion API endpoint
-        url := "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+        // Hugging Face Stable Diffusion API endpoint - using runwayml/stable-diffusion-v1-5
+        url := "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
         
         // Prepare request payload
         payload := map[string]interface{}{
@@ -360,13 +361,26 @@ func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
         req.Header.Set("Authorization", "Bearer "+apiKey)
         req.Header.Set("Content-Type", "application/json")
         
-        // Send request
-        client := &http.Client{}
+        // Send request with timeout
+        client := &http.Client{
+                Timeout: 60 * time.Second, // Increase timeout for image generation
+        }
         resp, err := client.Do(req)
         if err != nil {
                 return "", fmt.Errorf("failed to send request: %v", err)
         }
         defer resp.Body.Close()
+        
+        if resp.StatusCode == 503 {
+                // Model is loading, wait and retry
+                time.Sleep(10 * time.Second)
+                resp2, err2 := client.Do(req)
+                if err2 != nil {
+                        return "", fmt.Errorf("failed to retry request: %v", err2)
+                }
+                defer resp2.Body.Close()
+                resp = resp2
+        }
         
         if resp.StatusCode != http.StatusOK {
                 body, _ := io.ReadAll(resp.Body)
