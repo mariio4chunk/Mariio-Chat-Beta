@@ -1,275 +1,320 @@
 package main
 
 import (
-        "context"
-        "encoding/base64"
-        "encoding/json"
-        "fmt"
-        "io"
-        "log"
-        "net/http"
-        "os"
-        "path/filepath"
-        "strings"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
-        "github.com/google/generative-ai-go/genai"
-        "google.golang.org/api/option"
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
 )
 
 // MessagePart represents a part of a message (text or image data)
 type MessagePart struct {
-        Text     string `json:"text,omitempty"`
-        MimeType string `json:"mimeType,omitempty"`
-        Data     string `json:"data,omitempty"` // base64-encoded for images
+	Text     string `json:"text,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data,omitempty"` // base64-encoded for images
 }
 
 // Message represents a chat message in the conversation
 type Message struct {
-        Role  string        `json:"role"`
-        Parts []MessagePart `json:"parts"`
+	Role  string        `json:"role"`
+	Parts []MessagePart `json:"parts"`
 }
 
 // ChatResponse represents the response sent back to the client
 type ChatResponse struct {
-        Response string `json:"response"`
-        Error    string `json:"error,omitempty"`
+	Response string `json:"response"`
+	Error    string `json:"error,omitempty"`
 }
 
 func main() {
-        // Get Gemini API key from environment variable
-        apiKey := os.Getenv("GEMINI_API_KEY")
-        if apiKey == "" {
-                log.Fatal("GEMINI_API_KEY environment variable is required. Please set it in Replit Secrets.")
-        }
+	// Get Gemini API key from environment variable
+	// To set this up in Replit Secrets:
+	// 1. Go to your Replit project
+	// 2. Click on "Secrets" in the left sidebar
+	// 3. Add a new secret with key: GEMINI_API_KEY
+	// 4. Set the value to your Google AI Studio API key
+	// 5. Get your API key from: https://aistudio.google.com/
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("GEMINI_API_KEY environment variable is required. Please set it in Replit Secrets.")
+	}
 
-        // Serve static files from public directory
-        fs := http.FileServer(http.Dir("./public/"))
-        http.Handle("/", fs)
+	// Serve static files from public directory
+	fs := http.FileServer(http.Dir("./public/"))
+	http.Handle("/", fs)
 
-        // Handle chat API endpoint
-        http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
-                handleChat(w, r, apiKey)
-        })
+	// Handle chat API endpoint
+	http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
+		handleChat(w, r, apiKey)
+	})
 
-        fmt.Println("Server starting on port 5000...")
-        fmt.Println("Make sure to set GEMINI_API_KEY in your Replit Secrets!")
-        log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
+	// Get port from environment or default to 8080
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	fmt.Printf("Server starting on port %s...\n", port)
+	fmt.Println("Make sure to set GEMINI_API_KEY in your Replit Secrets!")
+	log.Fatal(http.ListenAndServe("0.0.0.0:"+port, nil))
 }
 
 func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
-        // Set CORS headers
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-        w.Header().Set("Content-Type", "application/json")
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Content-Type", "application/json")
 
-        if r.Method == "OPTIONS" {
-                return
-        }
+	if r.Method == "OPTIONS" {
+		return
+	}
 
-        if r.Method != "POST" {
-                log.Printf("Invalid method: %s", r.Method)
-                http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-                return
-        }
+	if r.Method != "POST" {
+		log.Printf("Invalid method: %s", r.Method)
+		sendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-        // Parse multipart form
-        err := r.ParseMultipartForm(10 << 20) // 10 MB max
-        if err != nil {
-                log.Printf("Failed to parse form data: %v", err)
-                sendErrorResponse(w, "Failed to parse form data: "+err.Error())
-                return
-        }
+	// Parse multipart form with 10MB limit
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		log.Printf("Failed to parse multipart form: %v", err)
+		sendErrorResponse(w, "Failed to parse form data: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
-        // Get messages JSON from form data
-        messagesJSON := r.FormValue("messages")
-        if messagesJSON == "" {
-                log.Println("Messages field is missing")
-                sendErrorResponse(w, "Messages field is required")
-                return
-        }
+	// Extract messages JSON from form data
+	messagesJSON := r.FormValue("messages")
+	if messagesJSON == "" {
+		log.Println("Messages field is missing from request")
+		sendErrorResponse(w, "Messages field is required", http.StatusBadRequest)
+		return
+	}
 
-        log.Printf("Received messages JSON: %s", messagesJSON)
+	log.Printf("Received messages JSON: %s", messagesJSON)
 
-        // Parse messages directly as array
-        var messages []Message
-        err = json.Unmarshal([]byte(messagesJSON), &messages)
-        if err != nil {
-                log.Printf("Failed to parse messages JSON: %v", err)
-                sendErrorResponse(w, "Failed to parse messages JSON: "+err.Error())
-                return
-        }
+	// Parse messages array
+	var messages []Message
+	err = json.Unmarshal([]byte(messagesJSON), &messages)
+	if err != nil {
+		log.Printf("Failed to parse messages JSON: %v", err)
+		sendErrorResponse(w, "Failed to parse messages JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
-        log.Printf("Successfully parsed %d messages", len(messages))
+	log.Printf("Successfully parsed %d messages", len(messages))
 
-        // Check if there's an uploaded image
-        file, fileHeader, err := r.FormFile("image")
-        var hasImage bool
-        var imageData []byte
-        var mimeType string
+	// Extract prompt text
+	prompt := r.FormValue("prompt")
+	log.Printf("Received prompt: %s", prompt)
 
-        if err == nil {
-                hasImage = true
-                defer file.Close()
+	// Check for uploaded image
+	file, fileHeader, err := r.FormFile("image")
+	var hasImage bool
+	var imageData []byte
+	var mimeType string
 
-                // Read image data
-                imageData, err = io.ReadAll(file)
-                if err != nil {
-                        sendErrorResponse(w, "Failed to read image data: "+err.Error())
-                        return
-                }
+	if err == nil {
+		hasImage = true
+		defer file.Close()
 
-                // Determine MIME type from file extension
-                ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-                switch ext {
-                case ".jpg", ".jpeg":
-                        mimeType = "image/jpeg"
-                case ".png":
-                        mimeType = "image/png"
-                case ".gif":
-                        mimeType = "image/gif"
-                case ".webp":
-                        mimeType = "image/webp"
-                default:
-                        mimeType = "image/jpeg" // default fallback
-                }
-        }
+		// Read image data
+		imageData, err = io.ReadAll(file)
+		if err != nil {
+			log.Printf("Failed to read image data: %v", err)
+			sendErrorResponse(w, "Failed to read image data: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 
-        // Initialize Gemini client
-        ctx := context.Background()
-        client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-        if err != nil {
-                log.Printf("Failed to initialize Gemini client: %v", err)
-                sendErrorResponse(w, "Failed to initialize Gemini client: "+err.Error())
-                return
-        }
-        defer client.Close()
+		// Detect MIME type from file extension
+		ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+		switch ext {
+		case ".jpg", ".jpeg":
+			mimeType = "image/jpeg"
+		case ".png":
+			mimeType = "image/png"
+		case ".gif":
+			mimeType = "image/gif"
+		case ".webp":
+			mimeType = "image/webp"
+		default:
+			// Try to detect content type
+			mimeType = http.DetectContentType(imageData)
+			if !strings.HasPrefix(mimeType, "image/") {
+				mimeType = "image/jpeg" // fallback
+			}
+		}
 
-        var response string
+		log.Printf("Processing image: size=%d bytes, mimeType=%s", len(imageData), mimeType)
+	}
 
-        if hasImage {
-                log.Printf("Processing image chat with image size: %d bytes, mimeType: %s", len(imageData), mimeType)
-                // Use gemini-pro-vision for image analysis
-                response, err = handleImageChat(ctx, client, messages, imageData, mimeType)
-        } else {
-                log.Printf("Processing text-only chat with %d messages in history", len(messages))
-                // Use gemini-pro for text-only chat
-                response, err = handleTextChat(ctx, client, messages)
-        }
+	// Initialize Gemini client
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil {
+		log.Printf("Failed to initialize Gemini client: %v", err)
+		sendErrorResponse(w, "Failed to initialize Gemini client: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer client.Close()
 
-        if err != nil {
-                log.Printf("Failed to get response from Gemini: %v", err)
-                sendErrorResponse(w, "Failed to get response from Gemini: "+err.Error())
-                return
-        }
+	var response string
 
-        responsePreview := response
-        if len(response) > 100 {
-                responsePreview = response[:100]
-        }
-        log.Printf("Successfully got response from Gemini: %s", responsePreview)
+	if hasImage {
+		// Use gemini-pro-vision for image analysis
+		response, err = handleImageChat(ctx, client, messages, imageData, mimeType, prompt)
+	} else {
+		// Use gemini-pro for text-only chat
+		response, err = handleTextChat(ctx, client, messages, prompt)
+	}
 
-        // Send successful response
-        chatResponse := ChatResponse{
-                Response: response,
-        }
+	if err != nil {
+		log.Printf("Failed to get response from Gemini: %v", err)
+		sendErrorResponse(w, "Failed to get response from Gemini: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-        w.WriteHeader(http.StatusOK)
-        json.NewEncoder(w).Encode(chatResponse)
+	// Log successful response (truncated for readability)
+	responsePreview := response
+	if len(response) > 100 {
+		responsePreview = response[:100] + "..."
+	}
+	log.Printf("Successfully got response from Gemini: %s", responsePreview)
+
+	// Send successful response
+	chatResponse := ChatResponse{
+		Response: response,
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(chatResponse)
 }
 
-func handleTextChat(ctx context.Context, client *genai.Client, messages []Message) (string, error) {
-        // Use gemini-pro model for text chat
-        model := client.GenerativeModel("gemini-pro")
-        
-        // Configure model settings
-        model.SetTemperature(0.7)
-        model.SetTopK(40)
-        model.SetTopP(0.95)
-        model.SetMaxOutputTokens(2048)
+func handleTextChat(ctx context.Context, client *genai.Client, messages []Message, prompt string) (string, error) {
+	// Use gemini-pro model for text chat
+	model := client.GenerativeModel("gemini-pro")
 
-        // Start chat session with history
-        chat := model.StartChat()
+	// Configure model settings
+	model.SetTemperature(0.7)
+	model.SetTopK(40)
+	model.SetTopP(0.95)
+	model.SetMaxOutputTokens(2048)
 
-        // Add conversation history (exclude the last message which we'll send separately)
-        for i, msg := range messages {
-                if i < len(messages)-1 {
-                        chat.History = append(chat.History, &genai.Content{
-                                Role:  msg.Role,
-                                Parts: msg.Parts,
-                        })
-                }
-        }
+	// Start chat session
+	chat := model.StartChat()
 
-        // Send the latest message
-        if len(messages) > 0 {
-                lastMessage := messages[len(messages)-1]
-                resp, err := chat.SendMessage(ctx, lastMessage.Parts...)
-                if err != nil {
-                        return "", err
-                }
+	// Build conversation history from messages
+	for i, msg := range messages {
+		var parts []genai.Part
+		
+		for _, part := range msg.Parts {
+			if part.Text != "" {
+				parts = append(parts, genai.Text(part.Text))
+			}
+			// For text-only chat, skip image parts from history
+		}
 
-                // Extract text from response
-                if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
-                        if textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
-                                return string(textPart), nil
-                        }
-                }
-        }
+		if len(parts) > 0 {
+			// Add to chat history (exclude the last message which we'll send separately)
+			if i < len(messages)-1 {
+				chat.History = append(chat.History, &genai.Content{
+					Role:  msg.Role,
+					Parts: parts,
+				})
+			}
+		}
+	}
 
-        return "Sorry, I couldn't generate a response.", nil
+	// Determine what to send as the current message
+	var currentParts []genai.Part
+	
+	if prompt != "" {
+		currentParts = append(currentParts, genai.Text(prompt))
+	} else if len(messages) > 0 {
+		// Use the last message's text parts
+		lastMsg := messages[len(messages)-1]
+		for _, part := range lastMsg.Parts {
+			if part.Text != "" {
+				currentParts = append(currentParts, genai.Text(part.Text))
+			}
+		}
+	}
+
+	if len(currentParts) == 0 {
+		return "", fmt.Errorf("no text content to send to Gemini")
+	}
+
+	// Send the current message
+	resp, err := chat.SendMessage(ctx, currentParts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to send message to Gemini: %v", err)
+	}
+
+	// Extract text from response
+	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+		if textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
+			return string(textPart), nil
+		}
+	}
+
+	return "Maaf, saya tidak dapat menghasilkan respons saat ini.", nil
 }
 
-func handleImageChat(ctx context.Context, client *genai.Client, messages []Message, imageData []byte, mimeType string) (string, error) {
-        // Use gemini-pro-vision model for image analysis
-        model := client.GenerativeModel("gemini-pro-vision")
-        
-        // Configure model settings
-        model.SetTemperature(0.4)
-        model.SetTopK(32)
-        model.SetTopP(1)
-        model.SetMaxOutputTokens(2048)
+func handleImageChat(ctx context.Context, client *genai.Client, messages []Message, imageData []byte, mimeType, prompt string) (string, error) {
+	// Use gemini-pro-vision model for image analysis
+	model := client.GenerativeModel("gemini-pro-vision")
 
-        // Get the user's text prompt (if any) from the last message
-        var userPrompt string
-        if len(messages) > 0 {
-                lastMessage := messages[len(messages)-1]
-                for _, part := range lastMessage.Parts {
-                        if textPart, ok := part.(genai.Text); ok {
-                                userPrompt = string(textPart)
-                                break
-                        }
-                }
-        }
+	// Configure model settings
+	model.SetTemperature(0.4)
+	model.SetTopK(32)
+	model.SetTopP(1)
+	model.SetMaxOutputTokens(2048)
 
-        // If no text prompt, use a default one
-        if userPrompt == "" {
-                userPrompt = "Analyze this image and describe what you see."
-        }
+	// Prepare parts for the current request
+	var parts []genai.Part
 
-        // Create image part
-        imagePart := genai.ImageData(mimeType, imageData)
+	// Add text prompt if provided
+	if prompt != "" {
+		parts = append(parts, genai.Text(prompt))
+	} else {
+		// Default prompt for image analysis
+		parts = append(parts, genai.Text("Analisis gambar ini dan jelaskan apa yang Anda lihat."))
+	}
 
-        // Generate content with both text and image
-        resp, err := model.GenerateContent(ctx, genai.Text(userPrompt), imagePart)
-        if err != nil {
-                return "", err
-        }
+	// Add the current image
+	imagePart := genai.ImageData(mimeType, imageData)
+	parts = append(parts, imagePart)
 
-        // Extract text from response
-        if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
-                if textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
-                        return string(textPart), nil
-                }
-        }
+	// Generate content with text and image
+	resp, err := model.GenerateContent(ctx, parts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate content with image: %v", err)
+	}
 
-        return "Sorry, I couldn't analyze the image.", nil
+	// Extract text from response
+	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+		if textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
+			return string(textPart), nil
+		}
+	}
+
+	return "Maaf, saya tidak dapat menganalisis gambar ini.", nil
 }
 
-func sendErrorResponse(w http.ResponseWriter, errorMsg string) {
-        w.WriteHeader(http.StatusBadRequest)
-        response := ChatResponse{
-                Error: errorMsg,
-        }
-        json.NewEncoder(w).Encode(response)
+func sendErrorResponse(w http.ResponseWriter, errorMsg string, statusCode int) {
+	w.WriteHeader(statusCode)
+	response := ChatResponse{
+		Error: errorMsg,
+	}
+	json.NewEncoder(w).Encode(response)
 }
