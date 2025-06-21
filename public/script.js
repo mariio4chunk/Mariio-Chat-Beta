@@ -1,9 +1,8 @@
 class GeminiChat {
     constructor() {
         this.messages = [];
-        this.isLoading = false;
         this.selectedImageFile = null;
-        this.isFirstMessage = true;
+        this.isLoading = false;
         
         this.initializeElements();
         this.attachEventListeners();
@@ -11,7 +10,7 @@ class GeminiChat {
     }
 
     initializeElements() {
-        // Get all DOM element references
+        // Get DOM element references
         this.welcomeScreen = document.getElementById('welcome-screen');
         this.chatContainer = document.getElementById('chat-container');
         this.userInput = document.getElementById('user-input');
@@ -36,13 +35,13 @@ class GeminiChat {
             }
         });
 
-        // Auto-resize textarea and update send button state
+        // Auto-resize textarea and update send button
         this.userInput.addEventListener('input', () => {
             this.autoResizeTextarea();
             this.updateSendButtonState();
         });
 
-        // Image upload
+        // Image upload handling
         this.imageUpload.addEventListener('change', (e) => this.handleImageUpload(e));
 
         // Clear image preview
@@ -53,7 +52,7 @@ class GeminiChat {
         const textarea = this.userInput;
         textarea.style.height = 'auto';
         const scrollHeight = textarea.scrollHeight;
-        const maxHeight = 120; // Max height in pixels
+        const maxHeight = 120;
         
         if (scrollHeight <= maxHeight) {
             textarea.style.height = `${scrollHeight}px`;
@@ -94,13 +93,13 @@ class GeminiChat {
         const reader = new FileReader();
         reader.onload = (e) => {
             this.imagePreview.src = e.target.result;
-            this.imagePreviewContainer.classList.add('show');
+            this.imagePreviewContainer.classList.add('visible');
         };
         reader.readAsDataURL(file);
     }
 
     clearImage() {
-        this.imagePreviewContainer.classList.remove('show');
+        this.imagePreviewContainer.classList.remove('visible');
         setTimeout(() => {
             this.imagePreview.src = '';
         }, 300);
@@ -110,10 +109,12 @@ class GeminiChat {
         this.updateSendButtonState();
     }
 
-    hideWelcomeScreen() {
-        this.welcomeScreen.classList.add('fade-out');
+    showChatUI() {
+        // Hide welcome screen and show chat interface
+        this.welcomeScreen.classList.add('hidden');
         setTimeout(() => {
             this.welcomeScreen.style.display = 'none';
+            this.chatContainer.classList.add('visible');
         }, 500);
     }
 
@@ -123,16 +124,15 @@ class GeminiChat {
 
         if ((!text && !image) || this.isLoading) return;
 
-        // Hide welcome screen on first message
-        if (this.isFirstMessage) {
-            this.hideWelcomeScreen();
-            this.isFirstMessage = false;
+        // Show chat UI if this is the first message
+        if (this.messages.length === 0) {
+            this.showChatUI();
         }
 
-        // Hide error messages
+        // Hide any error messages
         this.hideError();
 
-        // Create user message
+        // Create user message object
         const userMessage = {
             role: 'user',
             parts: []
@@ -142,11 +142,13 @@ class GeminiChat {
             userMessage.parts.push({ text: text });
         }
 
-        // Add user message to messages array and render
+        // Add user message to conversation history
         this.messages.push(userMessage);
+
+        // Render user message in UI
         this.renderMessage(userMessage, image);
 
-        // Clear input
+        // Clear input and image
         this.userInput.value = '';
         this.clearImage();
         this.autoResizeTextarea();
@@ -155,15 +157,23 @@ class GeminiChat {
         this.showLoadingIndicator();
 
         try {
-            // Prepare FormData
+            // Prepare form data for backend
             const formData = new FormData();
+            
+            // Add conversation history
             formData.append('messages', JSON.stringify(this.messages));
-
+            
+            // Add current prompt text
+            if (text) {
+                formData.append('prompt', text);
+            }
+            
+            // Add image if present
             if (image) {
                 formData.append('image', image);
             }
 
-            // Send to backend
+            // Send request to backend
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 body: formData
@@ -179,13 +189,16 @@ class GeminiChat {
                 throw new Error(data.error);
             }
 
-            // Add AI response to messages and render
+            // Create AI response message
             const aiMessage = {
                 role: 'model',
                 parts: [{ text: data.response }]
             };
 
+            // Add to conversation history
             this.messages.push(aiMessage);
+
+            // Render AI message in UI
             this.renderMessage(aiMessage);
             
         } catch (error) {
@@ -197,32 +210,31 @@ class GeminiChat {
     }
 
     renderMessage(message, imageFile = null) {
-        const messageElement = document.createElement('div');
-        messageElement.className = `message ${message.role}-message`;
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${message.role}-message`;
 
         let content = '';
 
         // Add image if present (for user messages)
         if (imageFile && message.role === 'user') {
             const imageUrl = URL.createObjectURL(imageFile);
-            content += `<img src="${imageUrl}" alt="Uploaded image" class="message-image">`;
+            content += `<img src="${imageUrl}" alt="Uploaded image">`;
         }
 
         // Add text content
         message.parts.forEach(part => {
             if (part.text) {
                 if (message.role === 'model') {
-                    content += `<div>${this.formatAIResponse(part.text)}</div>`;
+                    content += this.formatAIResponse(part.text);
                 } else {
-                    content += `<div>${this.escapeHtml(part.text)}</div>`;
+                    content += this.escapeHtml(part.text);
                 }
             }
         });
 
-        messageElement.innerHTML = `<div class="message-content">${content}</div>`;
-
-        this.chatContainer.appendChild(messageElement);
-        this.autoScrollChat();
+        messageDiv.innerHTML = content;
+        this.chatContainer.appendChild(messageDiv);
+        this.scrollToBottom();
     }
 
     formatAIResponse(text) {
@@ -243,36 +255,36 @@ class GeminiChat {
 
     showLoadingIndicator() {
         this.isLoading = true;
-        this.loadingIndicator.classList.add('show');
+        this.loadingIndicator.classList.add('visible');
         this.updateSendButtonState();
-        this.autoScrollChat();
+        this.scrollToBottom();
     }
 
     hideLoadingIndicator() {
         this.isLoading = false;
-        this.loadingIndicator.classList.remove('show');
+        this.loadingIndicator.classList.remove('visible');
         this.updateSendButtonState();
     }
 
     showError(message) {
         this.errorMessageArea.textContent = message;
-        this.errorMessageArea.classList.add('show');
-        this.autoScrollChat();
+        this.errorMessageArea.classList.add('visible');
+        this.scrollToBottom();
 
-        // Hide error after 5 seconds
+        // Auto-hide error after 5 seconds
         setTimeout(() => {
             this.hideError();
         }, 5000);
     }
 
     hideError() {
-        this.errorMessageArea.classList.remove('show');
+        this.errorMessageArea.classList.remove('visible');
         setTimeout(() => {
             this.errorMessageArea.textContent = '';
         }, 300);
     }
 
-    autoScrollChat() {
+    scrollToBottom() {
         setTimeout(() => {
             this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
         }, 100);
