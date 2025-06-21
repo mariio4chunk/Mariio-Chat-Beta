@@ -88,14 +88,16 @@ func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
 
         log.Printf("Received messages JSON: %s", messagesJSON)
 
-        // Parse messages
-        var chatRequest ChatRequest
-        err = json.Unmarshal([]byte(messagesJSON), &chatRequest)
+        // Parse messages directly as array
+        var messages []Message
+        err = json.Unmarshal([]byte(messagesJSON), &messages)
         if err != nil {
                 log.Printf("Failed to parse messages JSON: %v", err)
                 sendErrorResponse(w, "Failed to parse messages JSON: "+err.Error())
                 return
         }
+
+        log.Printf("Successfully parsed %d messages", len(messages))
 
         // Check if there's an uploaded image
         file, fileHeader, err := r.FormFile("image")
@@ -145,11 +147,11 @@ func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
         if hasImage {
                 log.Printf("Processing image chat with image size: %d bytes, mimeType: %s", len(imageData), mimeType)
                 // Use gemini-pro-vision for image analysis
-                response, err = handleImageChat(ctx, client, chatRequest.Messages, imageData, mimeType)
+                response, err = handleImageChat(ctx, client, messages, imageData, mimeType)
         } else {
-                log.Printf("Processing text-only chat with %d messages in history", len(chatRequest.Messages))
+                log.Printf("Processing text-only chat with %d messages in history", len(messages))
                 // Use gemini-pro for text-only chat
-                response, err = handleTextChat(ctx, client, chatRequest.Messages)
+                response, err = handleTextChat(ctx, client, messages)
         }
 
         if err != nil {

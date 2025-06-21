@@ -3,40 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Chat Clone</title>
+    <title>Gemini Chat</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="app-container" class="app-container">
+        <div id="welcome-screen" class="welcome-screen">
+            <div class="gemini-sparkle">✨</div>
+            <h1 class="welcome-title">Gemini Chat</h1>
+            <p class="welcome-subtitle">Asisten AI canggih dari Google</p>
+            <p class="welcome-description">Tanyakan apa saja atau unggah gambar untuk dianalisis</p>
+        </div>
+
         <header class="app-header">
-            <div class="header-content">
-                <h1 class="app-title">
-                    <span class="gemini-icon">✨</span>
-                    Gemini Chat
-                </h1>
-                <div class="header-subtitle">Powered by Google Gemini AI</div>
-            </div>
+            <h1>Gemini Chat</h1>
+            <p class="subtitle">Powered by Google Gemini AI</p>
         </header>
 
-        <main class="main-content">
-            <div id="chat-container" class="chat-container">
-                <div class="welcome-message">
-                    <div class="welcome-icon">🤖</div>
-                    <h2>Halo! Saya Gemini</h2>
-                    <p>Saya dapat membantu Anda dengan pertanyaan, menganalisis gambar, dan melakukan percakapan. Apa yang ingin Anda jelajahi hari ini?</p>
-                </div>
-            </div>
-
+        <main>
+            <div id="chat-container" class="chat-container"></div>
+            
             <div id="loading-indicator" class="loading-indicator">
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                <div class="typing-bubble">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
                 </div>
-                <span class="typing-text">Gemini sedang berpikir...</span>
+                <span class="typing-text">AI sedang mengetik...</span>
             </div>
 
             <div id="error-message-area" class="error-message-area"></div>
@@ -44,36 +40,27 @@
 
         <footer id="input-area" class="input-area">
             <div id="image-preview-container" class="image-preview-container">
-                <img id="image-preview" class="image-preview" style="display: none;">
-                <button id="clear-image-preview" class="clear-image-btn" style="display: none;">✕</button>
+                <img id="image-preview" class="image-preview" alt="Preview">
+                <button id="clear-image-preview" class="clear-preview-btn">×</button>
             </div>
             
-            <div class="input-container">
-                <div class="input-wrapper">
-                    <textarea 
-                        id="user-input" 
-                        class="user-input" 
-                        placeholder="Tulis pesan atau unggah gambar..."
-                        rows="1"
-                    ></textarea>
-                    
-                    <div class="input-actions">
-                        <div id="file-input-wrapper" class="file-input-wrapper">
-                            <label for="image-upload" class="image-upload-btn" title="Unggah gambar">
-                                🖼️
-                            </label>
-                            <input 
-                                type="file" 
-                                id="image-upload" 
-                                accept="image/*" 
-                                style="display: none;"
-                            >
-                        </div>
-                        
-                        <button id="send-button" class="send-button" title="Kirim pesan">
-                            ⬆️
-                        </button>
+            <div class="input-wrapper">
+                <textarea 
+                    id="user-input" 
+                    class="user-input" 
+                    placeholder="Tulis pesan atau unggah gambar..."
+                    rows="1"
+                ></textarea>
+                
+                <div class="input-actions">
+                    <div id="image-upload-area" class="upload-btn">
+                        <input type="file" id="image-upload" accept="image/*" style="display: none;">
+                        <label for="image-upload" title="Unggah gambar">📎</label>
                     </div>
+                    
+                    <button id="send-button" class="send-button" title="Kirim pesan">
+                        ➤
+                    </button>
                 </div>
             </div>
         </footer>

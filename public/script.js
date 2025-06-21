@@ -3,14 +3,16 @@ class GeminiChat {
         this.messages = [];
         this.isLoading = false;
         this.selectedImageFile = null;
+        this.isFirstMessage = true;
         
         this.initializeElements();
         this.attachEventListeners();
-        this.showWelcomeMessage();
+        this.updateSendButtonState();
     }
 
     initializeElements() {
         // Get all DOM element references
+        this.welcomeScreen = document.getElementById('welcome-screen');
         this.chatContainer = document.getElementById('chat-container');
         this.userInput = document.getElementById('user-input');
         this.sendButton = document.getElementById('send-button');
@@ -92,8 +94,6 @@ class GeminiChat {
         const reader = new FileReader();
         reader.onload = (e) => {
             this.imagePreview.src = e.target.result;
-            this.imagePreview.style.display = 'block';
-            this.clearImagePreview.style.display = 'block';
             this.imagePreviewContainer.classList.add('show');
         };
         reader.readAsDataURL(file);
@@ -102,8 +102,6 @@ class GeminiChat {
     clearImage() {
         this.imagePreviewContainer.classList.remove('show');
         setTimeout(() => {
-            this.imagePreview.style.display = 'none';
-            this.clearImagePreview.style.display = 'none';
             this.imagePreview.src = '';
         }, 300);
         
@@ -112,16 +110,11 @@ class GeminiChat {
         this.updateSendButtonState();
     }
 
-    showWelcomeMessage() {
-        // Add welcome message after 1 second
+    hideWelcomeScreen() {
+        this.welcomeScreen.classList.add('fade-out');
         setTimeout(() => {
-            const welcomeMsg = {
-                role: 'model',
-                parts: [{ text: 'Halo! Saya Gemini, asisten AI dari Google. Saya siap membantu menjawab pertanyaan Anda atau menganalisis gambar yang Anda berikan. Silakan mulai percakapan!' }]
-            };
-            this.messages.push(welcomeMsg);
-            this.renderMessage(welcomeMsg);
-        }, 1000);
+            this.welcomeScreen.style.display = 'none';
+        }, 500);
     }
 
     async sendMessage() {
@@ -129,6 +122,12 @@ class GeminiChat {
         const image = this.selectedImageFile;
 
         if ((!text && !image) || this.isLoading) return;
+
+        // Hide welcome screen on first message
+        if (this.isFirstMessage) {
+            this.hideWelcomeScreen();
+            this.isFirstMessage = false;
+        }
 
         // Hide error messages
         this.hideError();
@@ -198,18 +197,6 @@ class GeminiChat {
     }
 
     renderMessage(message, imageFile = null) {
-        // Remove welcome message if it's the first user message
-        if (message.role === 'user' && this.messages.length === 1) {
-            const welcomeMessage = document.querySelector('.welcome-message');
-            if (welcomeMessage) {
-                welcomeMessage.style.opacity = '0';
-                welcomeMessage.style.transform = 'translateY(-20px)';
-                setTimeout(() => {
-                    welcomeMessage.remove();
-                }, 300);
-            }
-        }
-
         const messageElement = document.createElement('div');
         messageElement.className = `message ${message.role}-message`;
 
