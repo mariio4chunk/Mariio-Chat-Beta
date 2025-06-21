@@ -200,63 +200,32 @@ func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
 }
 
 func handleTextChat(ctx context.Context, client *genai.Client, messages []Message, prompt string) (string, error) {
-        // Use gemini-pro model for text chat
-        model := client.GenerativeModel("gemini-pro")
+        // Use gemini-1.5-flash model for text chat
+        model := client.GenerativeModel("gemini-1.5-flash")
 
-        // Configure model settings
-        model.SetTemperature(0.7)
-        model.SetTopK(40)
-        model.SetTopP(0.95)
-        model.SetMaxOutputTokens(2048)
-
-        // Start chat session
-        chat := model.StartChat()
-
-        // Build conversation history from messages
-        for i, msg := range messages {
-                var parts []genai.Part
-                
-                for _, part := range msg.Parts {
-                        if part.Text != "" {
-                                parts = append(parts, genai.Text(part.Text))
-                        }
-                        // For text-only chat, skip image parts from history
-                }
-
-                if len(parts) > 0 {
-                        // Add to chat history (exclude the last message which we'll send separately)
-                        if i < len(messages)-1 {
-                                chat.History = append(chat.History, &genai.Content{
-                                        Role:  msg.Role,
-                                        Parts: parts,
-                                })
-                        }
-                }
-        }
-
-        // Determine what to send as the current message
-        var currentParts []genai.Part
-        
+        // Prepare the prompt to send
+        var promptText string
         if prompt != "" {
-                currentParts = append(currentParts, genai.Text(prompt))
+                promptText = prompt
         } else if len(messages) > 0 {
-                // Use the last message's text parts
+                // Use the last message's text
                 lastMsg := messages[len(messages)-1]
                 for _, part := range lastMsg.Parts {
                         if part.Text != "" {
-                                currentParts = append(currentParts, genai.Text(part.Text))
+                                promptText = part.Text
+                                break
                         }
                 }
         }
 
-        if len(currentParts) == 0 {
+        if promptText == "" {
                 return "", fmt.Errorf("no text content to send to Gemini")
         }
 
-        // Send the current message
-        resp, err := chat.SendMessage(ctx, currentParts...)
+        // Generate content directly
+        resp, err := model.GenerateContent(ctx, genai.Text(promptText))
         if err != nil {
-                return "", fmt.Errorf("failed to send message to Gemini: %v", err)
+                return "", fmt.Errorf("failed to generate content: %v", err)
         }
 
         // Extract text from response
@@ -270,14 +239,8 @@ func handleTextChat(ctx context.Context, client *genai.Client, messages []Messag
 }
 
 func handleImageChat(ctx context.Context, client *genai.Client, messages []Message, imageData []byte, mimeType, prompt string) (string, error) {
-        // Use gemini-pro-vision model for image analysis
-        model := client.GenerativeModel("gemini-pro-vision")
-
-        // Configure model settings
-        model.SetTemperature(0.4)
-        model.SetTopK(32)
-        model.SetTopP(1)
-        model.SetMaxOutputTokens(2048)
+        // Use gemini-1.5-flash model for image analysis
+        model := client.GenerativeModel("gemini-1.5-flash")
 
         // Prepare parts for the current request
         var parts []genai.Part

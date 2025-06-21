@@ -7,6 +7,11 @@ class GeminiChat {
         this.initializeElements();
         this.attachEventListeners();
         this.updateSendButtonState();
+        
+        // Focus the input field on load
+        if (this.userInput) {
+            this.userInput.focus();
+        }
     }
 
     initializeElements() {
@@ -116,12 +121,6 @@ class GeminiChat {
         setTimeout(() => {
             this.welcomeScreen.style.display = 'none';
             this.chatContainer.classList.add('visible');
-            
-            // Show input area after chat container is visible
-            setTimeout(() => {
-                const inputArea = document.getElementById('input-area');
-                inputArea.classList.add('visible');
-            }, 200);
         }, 500);
     }
 
