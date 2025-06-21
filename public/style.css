@@ -481,29 +481,29 @@ main {
     header {
         padding: 12px;
     }
-    
+
     .chat-container {
         padding: 15px;
         gap: 8px;
     }
-    
+
     .input-area {
         padding: 12px 15px;
     }
-    
+
     .message {
         max-width: 90%;
         padding: 10px 14px;
     }
-    
+
     .welcome-screen h1 {
         font-size: 28px;
     }
-    
+
     .welcome-message-text {
         font-size: 16px;
     }
-    
+
     .gemini-sparkle-logo {
         width: 50px;
         height: 50px;
@@ -514,20 +514,35 @@ main {
     .input-wrapper {
         gap: 8px;
     }
-    
+
     .upload-button,
     #send-button {
         width: 44px;
         height: 44px;
         font-size: 18px;
     }
-    
+
     #user-input {
         padding: 10px 16px;
         font-size: 16px;
     }
-    
+
     header h1 {
         font-size: 20px;
     }
+}
+
+/* Message images */
+.message img,
+.message-image {
+    max-width: 300px;
+    max-height: 300px;
+    border-radius: 8px;
+    margin: 8px 0;
+    display: block;
+}
+
+.generated-image {
+    border: 2px solid #4285f4;
+    box-shadow: 0 2px 8px rgba(66, 133, 244, 0.2);
 }

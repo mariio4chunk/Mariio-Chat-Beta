@@ -204,8 +204,8 @@ class GeminiChat {
             // Add to conversation history
             this.messages.push(aiMessage);
 
-            // Render AI message in UI
-            this.renderMessage(aiMessage);
+            // Render AI message in UI (with generated image if present)
+            this.renderMessage(aiMessage, null, data.imageBase64);
             
         } catch (error) {
             console.error('Error sending message:', error);
@@ -215,16 +215,21 @@ class GeminiChat {
         }
     }
 
-    renderMessage(message, imageFile = null) {
+    renderMessage(message, imageFile = null, generatedImageBase64 = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${message.role}-message`;
 
         let content = '';
 
-        // Add image if present (for user messages)
+        // Add uploaded image if present (for user messages)
         if (imageFile && message.role === 'user') {
             const imageUrl = URL.createObjectURL(imageFile);
-            content += `<img src="${imageUrl}" alt="Uploaded image">`;
+            content += `<img src="${imageUrl}" alt="Uploaded image" class="message-image">`;
+        }
+
+        // Add generated image if present (for AI messages)
+        if (generatedImageBase64 && message.role === 'model') {
+            content += `<img src="data:image/png;base64,${generatedImageBase64}" alt="Generated image" class="message-image generated-image">`;
         }
 
         // Add text content

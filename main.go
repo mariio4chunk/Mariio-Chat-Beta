@@ -1,7 +1,9 @@
 package main
 
 import (
+        "bytes"
         "context"
+        "encoding/base64"
         "encoding/json"
         "fmt"
         "io"
@@ -30,21 +32,26 @@ type Message struct {
 
 // ChatResponse represents the response sent back to the client
 type ChatResponse struct {
-        Response string `json:"response"`
-        Error    string `json:"error,omitempty"`
+        Response    string `json:"response"`
+        ImageBase64 string `json:"imageBase64,omitempty"`
+        Error       string `json:"error,omitempty"`
 }
 
 func main() {
-        // Get Gemini API key from environment variable
+        // Get API keys from environment variables
         // To set this up in Replit Secrets:
         // 1. Go to your Replit project
         // 2. Click on "Secrets" in the left sidebar
-        // 3. Add a new secret with key: GEMINI_API_KEY
-        // 4. Set the value to your Google AI Studio API key
-        // 5. Get your API key from: https://aistudio.google.com/
-        apiKey := os.Getenv("GEMINI_API_KEY")
-        if apiKey == "" {
+        // 3. Add GEMINI_API_KEY from: https://aistudio.google.com/
+        // 4. Add HUGGINGFACE_API_KEY from: https://huggingface.co/settings/tokens
+        geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+        huggingFaceAPIKey := os.Getenv("HUGGINGFACE_API_KEY")
+        
+        if geminiAPIKey == "" {
                 log.Fatal("GEMINI_API_KEY environment variable is required. Please set it in Replit Secrets.")
+        }
+        if huggingFaceAPIKey == "" {
+                log.Fatal("HUGGINGFACE_API_KEY environment variable is required. Please set it in Replit Secrets.")
         }
 
         // Serve static files from public directory
@@ -53,7 +60,7 @@ func main() {
 
         // Handle chat API endpoint
         http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
-                handleChat(w, r, apiKey)
+                handleChat(w, r, geminiAPIKey, huggingFaceAPIKey)
         })
 
         // Get port from environment or default to 5000
@@ -63,11 +70,13 @@ func main() {
         }
 
         fmt.Printf("Server starting on port %s...\n", port)
-        fmt.Println("Make sure to set GEMINI_API_KEY in your Replit Secrets!")
+        fmt.Println("Make sure to set GEMINI_API_KEY and HUGGINGFACE_API_KEY in your Replit Secrets!")
+        fmt.Println("Gemini: Text chat and image analysis")
+        fmt.Println("Hugging Face: Image generation with Stable Diffusion")
         log.Fatal(http.ListenAndServe("0.0.0.0:"+port, nil))
 }
 
-func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
+func handleChat(w http.ResponseWriter, r *http.Request, geminiAPIKey, huggingFaceAPIKey string) {
         // Set CORS headers
         w.Header().Set("Access-Control-Allow-Origin", "*")
         w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -157,30 +166,45 @@ func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
                 log.Printf("Processing image: size=%d bytes, mimeType=%s", len(imageData), mimeType)
         }
 
-        // Initialize Gemini client
+        // Check if user wants to generate an image
+        isImageGeneration := detectImageGenerationRequest(prompt, messages)
+        
         ctx := context.Background()
-        client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-        if err != nil {
-                log.Printf("Failed to initialize Gemini client: %v", err)
-                sendErrorResponse(w, "Failed to initialize Gemini client: "+err.Error(), http.StatusInternalServerError)
-                return
-        }
-        defer client.Close()
-
         var response string
+        var imageBase64 string
 
-        if hasImage {
-                // Use gemini-pro-vision for image analysis
-                response, err = handleImageChat(ctx, client, messages, imageData, mimeType, prompt)
+        if isImageGeneration {
+                // Generate image using Hugging Face
+                imageBase64, err = generateImage(ctx, huggingFaceAPIKey, prompt)
+                if err != nil {
+                        log.Printf("Failed to generate image: %v", err)
+                        sendErrorResponse(w, "Failed to generate image: "+err.Error(), http.StatusInternalServerError)
+                        return
+                }
+                response = "Saya telah membuat gambar sesuai permintaan Anda!"
         } else {
-                // Use gemini-pro for text-only chat
-                response, err = handleTextChat(ctx, client, messages, prompt)
-        }
+                // Initialize Gemini client for text/image analysis
+                client, err := genai.NewClient(ctx, option.WithAPIKey(geminiAPIKey))
+                if err != nil {
+                        log.Printf("Failed to initialize Gemini client: %v", err)
+                        sendErrorResponse(w, "Failed to initialize Gemini client: "+err.Error(), http.StatusInternalServerError)
+                        return
+                }
+                defer client.Close()
 
-        if err != nil {
-                log.Printf("Failed to get response from Gemini: %v", err)
-                sendErrorResponse(w, "Failed to get response from Gemini: "+err.Error(), http.StatusInternalServerError)
-                return
+                if hasImage {
+                        // Use gemini-pro-vision for image analysis
+                        response, err = handleImageChat(ctx, client, messages, imageData, mimeType, prompt)
+                } else {
+                        // Use gemini-pro for text-only chat
+                        response, err = handleTextChat(ctx, client, messages, prompt)
+                }
+
+                if err != nil {
+                        log.Printf("Failed to get response from Gemini: %v", err)
+                        sendErrorResponse(w, "Failed to get response from Gemini: "+err.Error(), http.StatusInternalServerError)
+                        return
+                }
         }
 
         // Log successful response (truncated for readability)
@@ -188,11 +212,12 @@ func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
         if len(response) > 100 {
                 responsePreview = response[:100] + "..."
         }
-        log.Printf("Successfully got response from Gemini: %s", responsePreview)
+        log.Printf("Successfully got response: %s", responsePreview)
 
         // Send successful response
         chatResponse := ChatResponse{
-                Response: response,
+                Response:    response,
+                ImageBase64: imageBase64,
         }
 
         w.WriteHeader(http.StatusOK)
@@ -271,6 +296,92 @@ func handleImageChat(ctx context.Context, client *genai.Client, messages []Messa
         }
 
         return "Maaf, saya tidak dapat menganalisis gambar ini.", nil
+}
+
+// detectImageGenerationRequest checks if the user wants to generate an image
+func detectImageGenerationRequest(prompt string, messages []Message) bool {
+        // Check current prompt
+        prompt = strings.ToLower(prompt)
+        imageKeywords := []string{
+                "buat gambar", "buatkan gambar", "generate image", "create image",
+                "draw", "gambar", "lukis", "ilustrasi", "sketch", "photo",
+                "picture", "image of", "make a picture", "make an image",
+        }
+        
+        for _, keyword := range imageKeywords {
+                if strings.Contains(prompt, keyword) {
+                        return true
+                }
+        }
+        
+        // Check recent messages for context
+        if len(messages) > 0 {
+                lastMessage := messages[len(messages)-1]
+                for _, part := range lastMessage.Parts {
+                        text := strings.ToLower(part.Text)
+                        for _, keyword := range imageKeywords {
+                                if strings.Contains(text, keyword) {
+                                        return true
+                                }
+                        }
+                }
+        }
+        
+        return false
+}
+
+// generateImage generates an image using Hugging Face Stable Diffusion API
+func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
+        // Hugging Face Stable Diffusion API endpoint
+        url := "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+        
+        // Prepare request payload
+        payload := map[string]interface{}{
+                "inputs": prompt,
+                "parameters": map[string]interface{}{
+                        "num_inference_steps": 50,
+                        "guidance_scale":      7.5,
+                        "width":              512,
+                        "height":             512,
+                },
+        }
+        
+        jsonPayload, err := json.Marshal(payload)
+        if err != nil {
+                return "", fmt.Errorf("failed to marshal payload: %v", err)
+        }
+        
+        // Create HTTP request
+        req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonPayload))
+        if err != nil {
+                return "", fmt.Errorf("failed to create request: %v", err)
+        }
+        
+        req.Header.Set("Authorization", "Bearer "+apiKey)
+        req.Header.Set("Content-Type", "application/json")
+        
+        // Send request
+        client := &http.Client{}
+        resp, err := client.Do(req)
+        if err != nil {
+                return "", fmt.Errorf("failed to send request: %v", err)
+        }
+        defer resp.Body.Close()
+        
+        if resp.StatusCode != http.StatusOK {
+                body, _ := io.ReadAll(resp.Body)
+                return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+        }
+        
+        // Read image data
+        imageData, err := io.ReadAll(resp.Body)
+        if err != nil {
+                return "", fmt.Errorf("failed to read image data: %v", err)
+        }
+        
+        // Convert to base64
+        imageBase64 := base64.StdEncoding.EncodeToString(imageData)
+        return imageBase64, nil
 }
 
 func sendErrorResponse(w http.ResponseWriter, errorMsg string, statusCode int) {
