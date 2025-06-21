@@ -11,7 +11,7 @@
 </head>
 <body>
     <div id="app-container">
-        <div id="welcome-screen" class="welcome-screen">
+        <div id="welcome-screen">
             <div class="gemini-sparkle-logo"></div>
             <h1>Selamat Datang di Gemini Chat</h1>
             <p class="welcome-message-text">Asisten AI canggih dari Google. Tanyakan apa saja atau unggah gambar untuk dianalisis.</p>
@@ -25,34 +25,29 @@
         <main>
             <div id="chat-container" class="chat-container"></div>
             
-            <div id="loading-indicator" class="loading-indicator">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="typing-text">AI sedang mengetik...</span>
+            <div id="loading-indicator">
+                <span>AI is typing</span><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
             </div>
 
             <div id="error-message-area" class="error-message-area"></div>
         </main>
 
-        <div id="input-area" class="input-area">
-            <div id="image-preview-container" class="image-preview-container">
-                <img id="image-preview" alt="Preview">
-                <button id="clear-image-preview" type="button">×</button>
-            </div>
-            
-            <div class="input-wrapper">
-                <textarea id="user-input" placeholder="Tulis pesan atau unggah gambar..." rows="1"></textarea>
-                
-                <label for="image-upload" class="upload-button" title="Unggah gambar">
-                    📎
-                </label>
-                <input type="file" id="image-upload" accept="image/*" style="display: none;">
-                
-                <button id="send-button" type="button" title="Kirim pesan">
-                    ➤
+        <div id="input-area">
+            <div id="image-preview-container">
+                <img id="image-preview" alt="Image preview">
+                <button id="clear-image-preview" class="icon-button clear-preview-button" title="Hapus Gambar" aria-label="Hapus Gambar">
+                    &times;
                 </button>
             </div>
+            
+            <textarea id="user-input" placeholder="Tulis pesan atau unggah gambar..." rows="1" aria-label="Tulis pesan Anda"></textarea>
+            <label for="image-upload" class="icon-button upload-button" title="Unggah Gambar" aria-label="Unggah Gambar">
+                &#128444;
+                <input type="file" id="image-upload" accept="image/*" style="display: none;">
+            </label>
+            <button id="send-button" class="icon-button send-button" title="Kirim Pesan" aria-label="Kirim Pesan">
+                &#x27A4;
+            </button>
         </div>
     </div>
 

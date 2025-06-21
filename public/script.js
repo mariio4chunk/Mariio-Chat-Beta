@@ -112,9 +112,16 @@ class GeminiChat {
     showChatUI() {
         // Hide welcome screen and show chat interface
         this.welcomeScreen.classList.add('hidden');
+        
         setTimeout(() => {
             this.welcomeScreen.style.display = 'none';
             this.chatContainer.classList.add('visible');
+            
+            // Show input area after chat container is visible
+            setTimeout(() => {
+                const inputArea = document.getElementById('input-area');
+                inputArea.classList.add('visible');
+            }, 200);
         }, 500);
     }
 
