@@ -335,28 +335,87 @@ func detectImageGenerationRequest(prompt string, messages []Message) bool {
         return false
 }
 
-// generateImage generates an image using Hugging Face Stable Diffusion API
-func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
-        // Try multiple models in order of preference
-        models := []string{
-                "stabilityai/stable-diffusion-2-1",
-                "CompVis/stable-diffusion-v1-4",
-                "runwayml/stable-diffusion-v1-5",
+// checkModelAvailability checks if a model is available and ready
+func checkModelAvailability(ctx context.Context, apiKey, model string) bool {
+        url := fmt.Sprintf("https://api-inference.huggingface.co/models/%s", model)
+        
+        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+        if err != nil {
+                return false
         }
         
-        var lastError error
+        req.Header.Set("Authorization", "Bearer "+apiKey)
         
+        client := &http.Client{Timeout: 10 * time.Second}
+        resp, err := client.Do(req)
+        if err != nil {
+                return false
+        }
+        defer resp.Body.Close()
+        
+        log.Printf("Model %s availability check: status %d", model, resp.StatusCode)
+        return resp.StatusCode == 200
+}
+
+// generateImage generates an image using Hugging Face Stable Diffusion API
+func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
+        // Try models that are more likely to be available
+        models := []string{
+                "black-forest-labs/FLUX.1-dev",
+                "black-forest-labs/FLUX.1-schnell",
+                "stabilityai/stable-diffusion-xl-base-1.0",
+                "stabilityai/sdxl-turbo",
+                "Lykon/DreamShaper",
+                "prompthero/openjourney",
+                "nitrosocke/Arcane-Diffusion",
+                "runwayml/stable-diffusion-v1-5",
+                "CompVis/stable-diffusion-v1-4",
+                "stabilityai/stable-diffusion-2-1",
+        }
+        
+        log.Printf("Starting image generation with prompt: %s", prompt)
+        
+        var lastError error
+        var workingModel string
+        
+        // First, find a working model
         for _, model := range models {
-                log.Printf("Trying model: %s", model)
+                if checkModelAvailability(ctx, apiKey, model) {
+                        workingModel = model
+                        log.Printf("Found working model: %s", model)
+                        break
+                }
+        }
+        
+        if workingModel == "" {
+                // If no model responds to availability check, try them anyway
+                log.Printf("No model responded to availability check, trying all models anyway")
+                workingModel = models[0]
+        }
+        
+        // Try to generate with the working model first, then fallback to others
+        modelsToTry := []string{workingModel}
+        for _, model := range models {
+                if model != workingModel {
+                        modelsToTry = append(modelsToTry, model)
+                }
+        }
+        
+        for _, model := range modelsToTry {
+                log.Printf("Trying image generation with model: %s", model)
                 url := fmt.Sprintf("https://api-inference.huggingface.co/models/%s", model)
                 
-                // Prepare request payload
+                // Prepare request payload - simplified for better compatibility
                 payload := map[string]interface{}{
                         "inputs": prompt,
-                        "parameters": map[string]interface{}{
-                                "num_inference_steps": 20, // Reduced for faster generation
+                }
+                
+                // Add parameters only for stable diffusion models
+                if strings.Contains(model, "stable-diffusion") || strings.Contains(model, "sdxl") {
+                        payload["parameters"] = map[string]interface{}{
+                                "num_inference_steps": 25,
                                 "guidance_scale":      7.5,
-                        },
+                        }
                 }
                 
                 jsonPayload, err := json.Marshal(payload)
@@ -364,6 +423,8 @@ func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
                         lastError = fmt.Errorf("failed to marshal payload: %v", err)
                         continue
                 }
+                
+                log.Printf("Sending request to %s with payload: %s", url, string(jsonPayload))
                 
                 // Create HTTP request
                 req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonPayload))
@@ -374,39 +435,74 @@ func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
                 
                 req.Header.Set("Authorization", "Bearer "+apiKey)
                 req.Header.Set("Content-Type", "application/json")
+                req.Header.Set("User-Agent", "GeminiChatApp/1.0")
                 
-                // Send request with timeout
+                // Send request with longer timeout for image generation
                 client := &http.Client{
-                        Timeout: 30 * time.Second,
+                        Timeout: 60 * time.Second,
                 }
+                
                 resp, err := client.Do(req)
                 if err != nil {
                         lastError = fmt.Errorf("failed to send request: %v", err)
+                        log.Printf("Request failed for model %s: %v", model, err)
                         continue
                 }
                 defer resp.Body.Close()
                 
-                // Read response body for error checking
+                // Read response body
                 body, err := io.ReadAll(resp.Body)
                 if err != nil {
                         lastError = fmt.Errorf("failed to read response body: %v", err)
                         continue
                 }
                 
-                log.Printf("Response status: %d, body length: %d", resp.StatusCode, len(body))
+                log.Printf("Model %s response: status=%d, body_length=%d", model, resp.StatusCode, len(body))
+                
+                // Log first 200 characters of response for debugging
+                if len(body) > 0 {
+                        preview := string(body)
+                        if len(preview) > 200 {
+                                preview = preview[:200] + "..."
+                        }
+                        log.Printf("Response preview: %s", preview)
+                }
                 
                 if resp.StatusCode == 503 {
-                        // Model is loading, try next model
-                        log.Printf("Model %s is loading (503), trying next model", model)
-                        lastError = fmt.Errorf("model %s is loading", model)
-                        continue
+                        log.Printf("Model %s is loading (503), will retry in 20 seconds", model)
+                        time.Sleep(20 * time.Second)
+                        
+                        // Retry once
+                        resp2, err2 := client.Do(req)
+                        if err2 != nil {
+                                lastError = fmt.Errorf("retry failed: %v", err2)
+                                continue
+                        }
+                        defer resp2.Body.Close()
+                        
+                        body, err = io.ReadAll(resp2.Body)
+                        if err != nil {
+                                lastError = fmt.Errorf("failed to read retry response: %v", err)
+                                continue
+                        }
+                        
+                        resp = resp2
+                        log.Printf("Retry for model %s: status=%d, body_length=%d", model, resp.StatusCode, len(body))
                 } else if resp.StatusCode == 404 {
-                        // Model not found, try next model
                         log.Printf("Model %s not found (404), trying next model", model)
                         lastError = fmt.Errorf("model %s not found", model)
                         continue
-                } else if resp.StatusCode != http.StatusOK {
-                        // Other error, try next model
+                } else if resp.StatusCode == 401 {
+                        log.Printf("Unauthorized (401) - check your Hugging Face API key")
+                        lastError = fmt.Errorf("unauthorized - invalid API key")
+                        continue
+                } else if resp.StatusCode == 429 {
+                        log.Printf("Rate limit exceeded (429), waiting and trying next model")
+                        lastError = fmt.Errorf("rate limit exceeded")
+                        continue
+                }
+                
+                if resp.StatusCode != http.StatusOK {
                         log.Printf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
                         lastError = fmt.Errorf("API request failed for model %s with status %d: %s", model, resp.StatusCode, string(body))
                         continue
@@ -422,9 +518,16 @@ func generateImage(ctx context.Context, apiKey, prompt string) (string, error) {
                         }
                 }
                 
+                // Check if body is actually image data (binary)
+                if len(body) < 100 {
+                        log.Printf("Response too short to be an image: %d bytes", len(body))
+                        lastError = fmt.Errorf("response too short for model %s", model)
+                        continue
+                }
+                
                 // Success! Convert to base64
                 imageBase64 := base64.StdEncoding.EncodeToString(body)
-                log.Printf("Successfully generated image using model: %s", model)
+                log.Printf("Successfully generated image using model: %s (image size: %d bytes)", model, len(body))
                 return imageBase64, nil
         }
         
