@@ -1,0 +1,32 @@
+modules = ["go"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Gemini Chat Server"
+
+[[workflows.workflow]]
+name = "Gemini Chat Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "go mod tidy && go run main.go"
+waitForPort = 5000
+
+[deployment]
+run = ["sh", "-c", "go mod tidy && go run main.go"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
