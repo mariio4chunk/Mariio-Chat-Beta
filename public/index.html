@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,10 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.css">
 </head>
 <body>
-    <div class="app-container">
+    <div id="app-container" class="app-container">
         <header class="app-header">
             <div class="header-content">
                 <h1 class="app-title">
@@ -26,39 +25,42 @@
             <div id="chat-container" class="chat-container">
                 <div class="welcome-message">
                     <div class="welcome-icon">🤖</div>
-                    <h2>Hello! I'm Gemini</h2>
-                    <p>I can help you with questions, analyze images, and have conversations. What would you like to explore today?</p>
+                    <h2>Halo! Saya Gemini</h2>
+                    <p>Saya dapat membantu Anda dengan pertanyaan, menganalisis gambar, dan melakukan percakapan. Apa yang ingin Anda jelajahi hari ini?</p>
                 </div>
             </div>
 
-            <div class="typing-indicator" id="typing-indicator">
+            <div id="loading-indicator" class="loading-indicator">
                 <div class="typing-dots">
                     <span></span>
                     <span></span>
                     <span></span>
                 </div>
-                <span class="typing-text">Gemini is thinking...</span>
+                <span class="typing-text">Gemini sedang berpikir...</span>
             </div>
 
-            <div id="input-area" class="input-area">
-                <div id="image-preview" class="image-preview"></div>
-                
-                <div class="input-container">
-                    <div class="input-wrapper">
-                        <textarea 
-                            id="user-input" 
-                            class="user-input" 
-                            placeholder="Enter a prompt here"
-                            rows="1"
-                        ></textarea>
-                        
-                        <div class="input-actions">
-                            <label for="image-upload" class="image-upload-btn" title="Upload image">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                                    <polyline points="21,15 16,10 5,21"></polyline>
-                                </svg>
+            <div id="error-message-area" class="error-message-area"></div>
+        </main>
+
+        <footer id="input-area" class="input-area">
+            <div id="image-preview-container" class="image-preview-container">
+                <img id="image-preview" class="image-preview" style="display: none;">
+                <button id="clear-image-preview" class="clear-image-btn" style="display: none;">✕</button>
+            </div>
+            
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="user-input" 
+                        class="user-input" 
+                        placeholder="Tulis pesan atau unggah gambar..."
+                        rows="1"
+                    ></textarea>
+                    
+                    <div class="input-actions">
+                        <div id="file-input-wrapper" class="file-input-wrapper">
+                            <label for="image-upload" class="image-upload-btn" title="Unggah gambar">
+                                🖼️
                             </label>
                             <input 
                                 type="file" 
@@ -66,18 +68,15 @@
                                 accept="image/*" 
                                 style="display: none;"
                             >
-                            
-                            <button id="send-button" class="send-button" title="Send message">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="22" y1="2" x2="11" y2="13"></line>
-                                    <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
-                                </svg>
-                            </button>
                         </div>
+                        
+                        <button id="send-button" class="send-button" title="Kirim pesan">
+                            ⬆️
+                        </button>
                     </div>
                 </div>
             </div>
-        </main>
+        </footer>
     </div>
 
     <script src="script.js"></script>
